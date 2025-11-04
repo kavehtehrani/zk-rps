@@ -1,0 +1,5 @@
+/.idea/
+/.env
+/contracts/artifacts/
+/contracts/cache/
+/plan.md
