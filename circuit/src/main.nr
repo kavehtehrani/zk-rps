@@ -1,13 +1,5 @@
-use dep::std::hash::pedersen_hash;
-
 // Rock = 0, Paper = 1, Scissors = 2
 // Winner: 0 = tie, 1 = player1, 2 = player2
-
-fn verify_commitment(move: Field, salt: Field, commitment: Field) {
-    let input = [move, salt];
-    let computed_hash = pedersen_hash(input);
-    assert(computed_hash == commitment);
-}
 
 fn determine_winner(move1: Field, move2: Field) -> Field {
     // Rock = 0, Paper = 1, Scissors = 2
@@ -46,25 +38,36 @@ fn determine_winner(move1: Field, move2: Field) -> Field {
 }
 
 fn main(
-    // Player 1 inputs
+    // Player moves (0=rock, 1=paper, 2=scissors)
     player1_move: Field,
-    player1_salt: Field,
-    player1_commitment: Field,
-    
-    // Player 2 inputs
     player2_move: Field,
-    player2_salt: Field,
-    player2_commitment: Field,
     
-    // Public output
+    // Public output - winner determined by circuit
     winner: pub Field
 ) {
-    // Verify commitments
-    // Note: Move validation is handled implicitly by the game logic
-    verify_commitment(player1_move, player1_salt, player1_commitment);
-    verify_commitment(player2_move, player2_salt, player2_commitment);
+    // Validate moves are in range (0, 1, or 2)
+    // Noir doesn't support || in assert, so we use nested if-else
+    if (player1_move == 0) {
+        // Valid move 0
+    } else {
+        if (player1_move == 1) {
+            // Valid move 1
+        } else {
+            assert(player1_move == 2); // Must be 2
+        }
+    }
     
-    // Determine winner
+    if (player2_move == 0) {
+        // Valid move 0
+    } else {
+        if (player2_move == 1) {
+            // Valid move 1
+        } else {
+            assert(player2_move == 2); // Must be 2
+        }
+    }
+    
+    // Determine winner (matches contract's _determineWinner logic)
     let computed_winner = determine_winner(player1_move, player2_move);
     
     // Output the winner
@@ -73,65 +76,25 @@ fn main(
 
 #[test]
 fn test_rock_beats_scissors() {
-    let p1_move = 0;
-    let p1_salt = 123;
-    let p1_commitment = pedersen_hash([p1_move, p1_salt]);
-    
-    let p2_move = 2;
-    let p2_salt = 456;
-    let p2_commitment = pedersen_hash([p2_move, p2_salt]);
-    
-    main(p1_move, p1_salt, p1_commitment, p2_move, p2_salt, p2_commitment, 1);
+    main(0, 2, 1); // Player 1 (Rock) beats Player 2 (Scissors)
 }
 
 #[test]
 fn test_paper_beats_rock() {
-    let p1_move = 1;
-    let p1_salt = 789;
-    let p1_commitment = pedersen_hash([p1_move, p1_salt]);
-    
-    let p2_move = 0;
-    let p2_salt = 101112;
-    let p2_commitment = pedersen_hash([p2_move, p2_salt]);
-    
-    main(p1_move, p1_salt, p1_commitment, p2_move, p2_salt, p2_commitment, 1);
+    main(1, 0, 1); // Player 1 (Paper) beats Player 2 (Rock)
 }
 
 #[test]
 fn test_scissors_beats_paper() {
-    let p1_move = 2;
-    let p1_salt = 131415;
-    let p1_commitment = pedersen_hash([p1_move, p1_salt]);
-    
-    let p2_move = 1;
-    let p2_salt = 161718;
-    let p2_commitment = pedersen_hash([p2_move, p2_salt]);
-    
-    main(p1_move, p1_salt, p1_commitment, p2_move, p2_salt, p2_commitment, 1);
+    main(2, 1, 1); // Player 1 (Scissors) beats Player 2 (Paper)
 }
 
 #[test]
 fn test_tie() {
-    let p1_move = 0;
-    let p1_salt = 192021;
-    let p1_commitment = pedersen_hash([p1_move, p1_salt]);
-    
-    let p2_move = 0;
-    let p2_salt = 222324;
-    let p2_commitment = pedersen_hash([p2_move, p2_salt]);
-    
-    main(p1_move, p1_salt, p1_commitment, p2_move, p2_salt, p2_commitment, 0);
+    main(0, 0, 0); // Both Rock - tie
 }
 
 #[test]
 fn test_player2_wins() {
-    let p1_move = 0;
-    let p1_salt = 252627;
-    let p1_commitment = pedersen_hash([p1_move, p1_salt]);
-    
-    let p2_move = 1;
-    let p2_salt = 282930;
-    let p2_commitment = pedersen_hash([p2_move, p2_salt]);
-    
-    main(p1_move, p1_salt, p1_commitment, p2_move, p2_salt, p2_commitment, 2);
+    main(0, 1, 2); // Player 1 (Rock) loses to Player 2 (Paper)
 }

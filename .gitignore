@@ -2,4 +2,9 @@
 /.env
 /contracts/artifacts/
 /contracts/cache/
+/contracts/ignition/deployments/
 /plan.md
+/contracts/node_modules/
+/frontend/node_modules/
+/frontend/target/
+/circuit/target/
