@@ -221,4 +221,50 @@ contract RockPaperScissorsTest is Test {
         vm.expectRevert();
         game.revealMove(gameId, 0, keccak256("wrong_salt"), "");
     }
+
+    function test_RevealSecondRequiresProofWhenVerifierSet() public {
+        // Setup game
+        vm.prank(player1);
+        uint256 gameId = game.createGame();
+
+        vm.prank(player2);
+        game.joinGame(gameId);
+
+        // Commit moves
+        bytes32 p1Salt = keccak256("salt1");
+        bytes32 p1Commitment = keccak256(abi.encodePacked(uint8(0), p1Salt));
+        bytes32 p2Salt = keccak256("salt2");
+        bytes32 p2Commitment = keccak256(abi.encodePacked(uint8(2), p2Salt));
+
+        vm.prank(player1);
+        game.commitMove(gameId, p1Commitment);
+
+        vm.prank(player2);
+        game.commitMove(gameId, p2Commitment);
+
+        // Set a dummy verifier address (non-zero) to activate proof requirement
+        // We deploy a minimal contract that always reverts verify to simulate missing/invalid proof
+        AlwaysFailVerifier failVerifier = new AlwaysFailVerifier();
+        vm.prank(address(this));
+        game.setVerifier(address(failVerifier));
+
+        // First reveal (no proof) should succeed because opponent hasn't revealed yet
+        vm.prank(player1);
+        game.revealMove(gameId, 0, p1Salt, "");
+
+        // Second reveal without valid proof should revert due to verifier failure
+        vm.prank(player2);
+        vm.expectRevert();
+        game.revealMove(gameId, 2, p2Salt, "");
+    }
+}
+
+contract AlwaysFailVerifier {
+    function verify(bytes calldata /*proof*/, bytes32[] calldata /*publicInputs*/)
+        external
+        pure
+        returns (bool)
+    {
+        return false;
+    }
 }

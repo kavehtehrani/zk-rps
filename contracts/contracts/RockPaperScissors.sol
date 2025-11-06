@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+interface IUltraVerifier {
+    function verify(
+        bytes calldata proof,
+        bytes32[] calldata publicInputs
+    ) external view returns (bool);
+}
+
 /**
  * @title RockPaperScissors
  * @dev Zero-knowledge rock-paper-scissors game contract
@@ -35,6 +42,10 @@ contract RockPaperScissors {
     mapping(uint256 => Game) public games;
     uint256 public gameCounter;
 
+    // Optional ZK verifier integration
+    IUltraVerifier public verifier;
+    address public immutable deployer;
+
     // Events
     event GameCreated(uint256 indexed gameId, address indexed player1);
 
@@ -57,6 +68,20 @@ contract RockPaperScissors {
         uint256 indexed gameId,
         uint8 winner // 0 = tie, 1 = player1, 2 = player2
     );
+
+    constructor() {
+        deployer = msg.sender;
+    }
+
+    /**
+     * @dev Set the verifier address (one-time, by deployer only)
+     */
+    function setVerifier(address _verifier) external {
+        require(msg.sender == deployer, "Only deployer");
+        require(address(verifier) == address(0), "Verifier already set");
+        require(_verifier != address(0), "Invalid verifier");
+        verifier = IUltraVerifier(_verifier);
+    }
 
     /**
      * @dev Create a new game
@@ -150,7 +175,7 @@ contract RockPaperScissors {
         uint256 gameId,
         uint8 move,
         bytes32 salt,
-        bytes calldata /* proof - placeholder for ZK verifier integration */
+        bytes calldata proof
     ) external {
         Game storage game = games[gameId];
 
@@ -186,16 +211,27 @@ contract RockPaperScissors {
 
         emit MoveRevealed(gameId, msg.sender, move, salt);
 
-        // Note: ZK proofs are generated client-side and verified locally
-        // The proof parameter is passed but not verified on-chain yet.
-        // To enable on-chain verification, we need to generate a verifier contract
-        // and that will also take care of the reveal phase
-        // Then integrate it here to verify the proof and winner calculation.
-        // For now, we rely on commitment verification (Keccak256) and
-        // the contract's _determineWinner() function for game resolution.
-
         // If both players have revealed, resolve the game
         if (game.player1Move != 255 && game.player2Move != 255) {
+            // If verifier is set, validate ZK proof before resolving
+            if (address(verifier) != address(0)) {
+                uint8 computedWinner = _determineWinner(
+                    game.player1Move,
+                    game.player2Move
+                );
+
+                // Build public inputs: [player1_move, player2_move, winner]
+                bytes32[] memory publicInputs = new bytes32[](3);
+                publicInputs[0] = bytes32(uint256(game.player1Move));
+                publicInputs[1] = bytes32(uint256(game.player2Move));
+                publicInputs[2] = bytes32(uint256(computedWinner));
+
+                require(
+                    verifier.verify(proof, publicInputs),
+                    "Invalid ZK proof"
+                );
+            }
+
             _resolveGame(gameId);
         }
     }

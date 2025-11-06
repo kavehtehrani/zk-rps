@@ -111,18 +111,18 @@ async function connectWallet() {
   if (typeof window.ethereum === "undefined") {
     log("❌ MetaMask not found. Please install MetaMask.");
     log(
-      "💡 Tip: Make sure MetaMask is installed and configured for Hardhat network (Chain ID: 31337)"
+      "💡 Tip: Make sure MetaMask is installed and configured for Sepolia testnet (Chain ID: 11155111)"
     );
     return;
   }
 
   try {
-    // Request network switch to Hardhat if needed
-    // Hardhat node uses chain ID 31337 by default
+    // Request network switch to Sepolia if needed
+    // Sepolia testnet uses chain ID 11155111
     try {
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0x7A69" }], // 31337 in hex
+        params: [{ chainId: "0xAA36A7" }], // 11155111 in hex
       });
     } catch (switchError) {
       // Chain doesn't exist, add it
@@ -131,10 +131,11 @@ async function connectWallet() {
           method: "wallet_addEthereumChain",
           params: [
             {
-              chainId: "0x7A69", // 31337 in hex (Hardhat default)
-              chainName: "Hardhat Local",
+              chainId: "0xAA36A7", // 11155111 in hex (Sepolia)
+              chainName: "Sepolia",
               nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-              rpcUrls: ["http://127.0.0.1:8545"],
+              rpcUrls: ["https://sepolia.infura.io/v3/"],
+              blockExplorerUrls: ["https://sepolia.etherscan.io"],
             },
           ],
         });
@@ -298,6 +299,8 @@ async function commitMove(move) {
     await tx.wait();
 
     gameState.isCommitted = true;
+    // Start auto-reveal watcher
+    startAutoRevealWatcher();
     const revealBtn = document.getElementById("revealBtn");
     revealBtn.disabled = false;
     revealBtn.classList.remove("opacity-50", "cursor-not-allowed");
@@ -586,6 +589,7 @@ function updateRevealStatus() {
 
 // Polling interval for checking game result
 let gameResultPollInterval = null;
+let autoRevealInterval = null;
 
 // Check game result
 async function checkGameResult() {
@@ -740,6 +744,43 @@ function startGameResultPolling() {
   }, 2000);
 }
 
+// Auto-reveal when both commitments exist and we haven't revealed yet
+async function maybeAutoReveal() {
+  if (
+    !contract ||
+    !gameState.gameId ||
+    !gameState.isCommitted ||
+    gameState.isRevealed
+  )
+    return;
+  try {
+    const game = await contract.getGame(gameState.gameId);
+    const bothCommitted =
+      game.player1Commitment !== ethers.ZeroHash &&
+      game.player2Commitment !== ethers.ZeroHash;
+    if (bothCommitted) {
+      // Trigger reveal once
+      if (autoRevealInterval) {
+        clearInterval(autoRevealInterval);
+        autoRevealInterval = null;
+      }
+      await revealMove();
+    }
+  } catch (_) {}
+}
+
+function startAutoRevealWatcher() {
+  // Clear existing interval
+  if (autoRevealInterval) {
+    clearInterval(autoRevealInterval);
+  }
+  // Check immediately and then poll
+  maybeAutoReveal();
+  autoRevealInterval = setInterval(() => {
+    maybeAutoReveal();
+  }, 2000);
+}
+
 // Helper function to get move name
 function getMoveName(move) {
   const moves = ["Rock 🪨", "Paper 📄", "Scissors ✂️"];
@@ -838,8 +879,25 @@ async function init() {
   try {
     await loadContractArtifact();
     await initNoir();
+
+    // Load Sepolia contract address from addresses.json
+    try {
+      const addressesResponse = await fetch("/addresses.json");
+      if (addressesResponse.ok) {
+        const addresses = await addressesResponse.json();
+        if (addresses.sepolia?.rockPaperScissors) {
+          CONTRACT_ADDRESS = addresses.sepolia.rockPaperScissors;
+          document.getElementById("contractAddressInput").value =
+            CONTRACT_ADDRESS;
+          log(`✅ Loaded Sepolia contract address: ${CONTRACT_ADDRESS}`);
+        }
+      }
+    } catch (error) {
+      log(`⚠️ Could not load addresses.json: ${error.message}`);
+    }
+
     log("🚀 Application ready!");
-    log("⚠️ Remember to set CONTRACT_ADDRESS after deploying the contract");
+    log("💡 Connect your wallet and switch to Sepolia testnet");
   } catch (error) {
     log(`Failed to initialize: ${error.message}`);
   }

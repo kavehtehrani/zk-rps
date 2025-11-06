@@ -1,0 +1,15 @@
+{
+  "sepolia": {
+    "verifier": "0x7f13ed97b75acd4835bd75b643d9f48814180fc7",
+    "rockPaperScissors": "0x34e02C16614f23Edf3dC2b761705822ED7694198"
+  },
+  "localhost": {
+    "verifier": "",
+    "rockPaperScissors": ""
+  },
+  "hardhat": {
+    "verifier": "",
+    "rockPaperScissors": ""
+  }
+}
+
