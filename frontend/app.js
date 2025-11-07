@@ -1509,18 +1509,14 @@ async function checkDeadline() {
       `🔍 Deadline check: timeout=${timeoutNum}s, deadline=${deadlineNum}, now=${now}, remaining=${timeRemaining}s`
     );
 
-    // Update deadline display
-    updateDeadlineDisplay(timeRemaining);
-
-    // If deadline passed and game not resolved, forfeit
-    // Only forfeit if timeRemaining is actually negative (deadline has passed)
-    // Game struct is an array: status is at index 3
-    if (timeRemaining < 0 && (game[3] || game.status) !== 3) {
-      log(
-        `⏰ Deadline passed! (deadline: ${deadlineNum}, now: ${now}, diff: ${timeRemaining}s) Forfeiting game...`
-      );
-      await forfeitGame();
+    // Update deadline display (will show forfeit button for Player 2 if deadline passed)
+    // Only update if game is not already completed
+    const gameStatus = game[3] || game.status;
+    if (gameStatus !== 3) {
+      updateDeadlineDisplay(timeRemaining, gameState.playerNumber);
     }
+
+    // Don't auto-forfeit - let Player 2 manually trigger forfeit via button
   } catch (error) {
     console.error("Deadline check error:", error);
   }
@@ -1533,7 +1529,9 @@ async function forfeitGame() {
   try {
     log("Calling forfeitGame()...");
     const tx = await contract.forfeitGame(gameState.gameId);
-    await tx.wait();
+    log(`Transaction sent: ${tx.hash}`);
+    const receipt = await tx.wait();
+    log(`Transaction confirmed in block ${receipt.blockNumber}`);
     log("✅ Game forfeited! Player 2 wins by default.");
 
     // Stop polling
@@ -1541,11 +1539,17 @@ async function forfeitGame() {
       clearInterval(deadlinePollInterval);
       deadlinePollInterval = null;
     }
+    if (gameResultPollInterval) {
+      clearInterval(gameResultPollInterval);
+      gameResultPollInterval = null;
+    }
 
-    // Refresh game status
+    // Refresh game status to show completion
+    await updateGameStatus();
     await checkGameResult();
   } catch (error) {
     log(`❌ Error forfeiting game: ${error.message}`);
+    console.error("Forfeit error:", error);
   }
 }
 
@@ -1561,19 +1565,51 @@ function startDeadlinePolling() {
 }
 
 // Update deadline display in UI
-function updateDeadlineDisplay(timeRemaining) {
+function updateDeadlineDisplay(timeRemaining, playerNumber) {
   const deadlineDiv = document.getElementById("deadlineDisplay");
   if (!deadlineDiv) return;
 
   // Don't show deadline if time remaining is invalid (negative or very large)
   // Only show "Deadline Passed" if it's actually negative (not just 0 or invalid)
   if (timeRemaining < 0) {
-    deadlineDiv.innerHTML = `
-      <div class="bg-red-100 border-2 border-red-300 rounded-xl p-4 text-center">
-        <p class="text-red-800 font-bold text-lg">⏰ Deadline Passed!</p>
-        <p class="text-red-600 text-sm">Player 1 forfeits - Player 2 wins</p>
-      </div>
-    `;
+    // Show forfeit button for Player 2 when deadline has passed
+    if (playerNumber === 2) {
+      deadlineDiv.innerHTML = `
+        <div class="bg-red-100 border-2 border-red-300 rounded-xl p-4 text-center">
+          <p class="text-red-800 font-bold text-lg mb-3">⏰ Deadline Passed!</p>
+          <p class="text-red-600 text-sm mb-4">Player 1 failed to reveal in time. You can claim victory!</p>
+          <button
+            id="forceForfeitBtn"
+            class="px-6 py-3 bg-gradient-to-r from-red-600 to-pink-600 text-white font-semibold rounded-xl hover:from-red-700 hover:to-pink-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl"
+          >
+            🏆 Force Forfeit (Claim Victory)
+          </button>
+        </div>
+      `;
+
+      // Add event listener to the button
+      const forceForfeitBtn = document.getElementById("forceForfeitBtn");
+      if (forceForfeitBtn) {
+        // Remove any existing listeners by cloning the button
+        const newBtn = forceForfeitBtn.cloneNode(true);
+        forceForfeitBtn.parentNode.replaceChild(newBtn, forceForfeitBtn);
+        newBtn.addEventListener("click", async () => {
+          newBtn.disabled = true;
+          newBtn.innerHTML = "⏳ Processing...";
+          await forfeitGame();
+          newBtn.disabled = false;
+          newBtn.innerHTML = "🏆 Force Forfeit (Claim Victory)";
+        });
+      }
+    } else {
+      // For Player 1, just show that deadline passed
+      deadlineDiv.innerHTML = `
+        <div class="bg-red-100 border-2 border-red-300 rounded-xl p-4 text-center">
+          <p class="text-red-800 font-bold text-lg">⏰ Deadline Passed!</p>
+          <p class="text-red-600 text-sm">You failed to reveal in time. Player 2 can claim victory.</p>
+        </div>
+      `;
+    }
     return;
   }
 
