@@ -39,8 +39,8 @@ fn determine_winner(move1: Field, move2: Field) -> Field {
 
 fn main(
     // Player moves (0=rock, 1=paper, 2=scissors)
-    player1_move: Field,
-    player2_move: Field,
+    player1_move: pub Field,
+    player2_move: pub Field,
     
     // Public output - winner determined by circuit
     winner: pub Field
