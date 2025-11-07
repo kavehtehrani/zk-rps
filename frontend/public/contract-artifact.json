@@ -28,6 +28,12 @@
           "internalType": "bytes32",
           "name": "commitment",
           "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timeout",
+          "type": "uint256"
         }
       ],
       "name": "GameCreated",
@@ -128,24 +134,16 @@
       "type": "event"
     },
     {
-      "inputs": [],
-      "name": "REVEAL_TIMEOUT",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
       "inputs": [
         {
           "internalType": "bytes32",
           "name": "commitment",
           "type": "bytes32"
+        },
+        {
+          "internalType": "uint256",
+          "name": "timeout",
+          "type": "uint256"
         }
       ],
       "name": "createGame",
@@ -251,6 +249,11 @@
         {
           "internalType": "uint256",
           "name": "createdAt",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "timeout",
           "type": "uint256"
         },
         {

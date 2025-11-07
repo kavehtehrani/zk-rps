@@ -535,14 +535,14 @@ function updateButtonStates() {
       // Enable create button if move selected and no game yet
       createBtn.disabled = false;
       createBtn.className =
-        "px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl hover:from-green-700 hover:to-emerald-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl";
+        "w-full px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold text-sm rounded-lg hover:from-green-700 hover:to-emerald-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl whitespace-nowrap";
       createBtn.innerHTML = "✨ Create Game";
     } else if (!hasMove) {
       // Disable if no move selected
       createBtn.disabled = true;
       createBtn.className =
-        "px-6 py-3 bg-gray-400 text-white font-semibold rounded-xl cursor-not-allowed transition-all duration-200";
-      createBtn.innerHTML = "✨ Create Game (Select move first)";
+        "w-full px-4 py-2 bg-gray-400 text-white font-semibold text-sm rounded-lg cursor-not-allowed transition-all duration-200 whitespace-nowrap";
+      createBtn.innerHTML = "✨ Create Game";
     }
   }
 
@@ -554,18 +554,14 @@ function updateButtonStates() {
       // Enable join button if move selected and game ID entered
       joinBtn.disabled = false;
       joinBtn.className =
-        "px-6 py-3 bg-gradient-to-r from-orange-600 to-red-600 text-white font-semibold rounded-xl hover:from-orange-700 hover:to-red-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl";
-      joinBtn.innerHTML = "🚀 Join Game";
+        "w-full px-4 py-2 bg-gradient-to-r from-orange-600 to-red-600 text-white font-semibold text-sm rounded-lg hover:from-orange-700 hover:to-red-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl whitespace-nowrap";
+      joinBtn.innerHTML = "🚀 Join";
     } else {
       // Disable if no move or no game ID
       joinBtn.disabled = true;
       joinBtn.className =
-        "px-6 py-3 bg-gray-400 text-white font-semibold rounded-xl cursor-not-allowed transition-all duration-200";
-      if (!hasMove) {
-        joinBtn.innerHTML = "🚀 Join Game (Select move first)";
-      } else {
-        joinBtn.innerHTML = "🚀 Join Game";
-      }
+        "w-full px-4 py-2 bg-gray-400 text-white font-semibold text-sm rounded-lg cursor-not-allowed transition-all duration-200 whitespace-nowrap";
+      joinBtn.innerHTML = "🚀 Join";
     }
   }
 }
@@ -652,73 +648,146 @@ async function serializeProof(proof) {
 let lastRenderedStatus = null;
 let lastRenderedGameId = null;
 let lastRenderedPlayerNumber = null;
+let lastRenderedResolutionStatus = null;
+let lastRenderedResolutionGameId = null;
 
-// Update game status display
-async function updateGameStatus() {
-  if (!contract || !gameState.gameId) return;
+// Update game resolution status display (always visible)
+async function updateGameResolutionStatus() {
+  const statusDiv = document.getElementById("gameResolutionStatus");
+  if (!statusDiv) return;
+
+  // If no game is active, show default message
+  if (!contract || !gameState.gameId) {
+    // Only update if status changed (we had a game before, or this is first render)
+    if (
+      lastRenderedResolutionStatus !== null ||
+      lastRenderedResolutionGameId !== null
+    ) {
+      statusDiv.innerHTML = `
+        <div class="bg-gray-50 border-2 border-gray-200 rounded-xl p-4">
+          <p class="text-sm text-gray-600 text-center">
+            No active game. Create or join a game to see status here.
+          </p>
+        </div>
+      `;
+      lastRenderedResolutionStatus = null;
+      lastRenderedResolutionGameId = null;
+      lastRenderedPlayerNumber = null;
+    }
+    return;
+  }
 
   try {
     const game = await contract.getGame(gameState.gameId);
     const statusNum = Number(game.status);
-    const statusText = ["Waiting", "Committed", "Revealed", "Completed"][
-      statusNum
-    ];
 
     // Check if status actually changed - only update DOM if it did
     if (
-      lastRenderedStatus === statusNum &&
-      lastRenderedGameId === gameState.gameId &&
+      lastRenderedResolutionStatus === statusNum &&
+      lastRenderedResolutionGameId === gameState.gameId &&
       lastRenderedPlayerNumber === gameState.playerNumber
     ) {
-      // Status hasn't changed, skip DOM update to avoid distracting refresh
+      // Status hasn't changed, skip DOM update to avoid unnecessary re-renders
       return;
     }
 
     // Status changed, update the display
-    lastRenderedStatus = statusNum;
-    lastRenderedGameId = gameState.gameId;
+    lastRenderedResolutionStatus = statusNum;
+    lastRenderedResolutionGameId = gameState.gameId;
     lastRenderedPlayerNumber = gameState.playerNumber;
 
+    const statusText = ["Waiting", "Committed", "Revealed", "Completed"][
+      statusNum
+    ];
     const statusClass = `status-${statusText.toLowerCase()}`;
 
-    let deadlineHtml = "";
-    if (game.revealDeadline > 0 && game.status !== 3) {
-      const deadline = Number(game.revealDeadline);
-      const now = Math.floor(Date.now() / 1000);
-      const timeRemaining = deadline - now;
-      const minutes = Math.floor(timeRemaining / 60);
-      const seconds = timeRemaining % 60;
-      const timeStr = `${minutes}:${seconds.toString().padStart(2, "0")}`;
-      const isUrgent = timeRemaining < 60;
+    let statusDetails = "";
+    let statusColor = "gray";
 
-      deadlineHtml = `
-        <div class="mt-3 p-3 bg-${
-          isUrgent ? "red" : "yellow"
-        }-50 border border-${isUrgent ? "red" : "yellow"}-200 rounded-lg">
-          <p class="text-${
-            isUrgent ? "red" : "yellow"
-          }-800 font-semibold text-sm">
-            ⏰ Deadline: ${timeStr} remaining
-          </p>
-        </div>
-      `;
+    switch (statusNum) {
+      case 0: // Waiting
+        statusDetails = "Waiting for players to join";
+        statusColor = "yellow";
+        break;
+      case 1: // Committed
+        statusDetails = "Player 1 committed move. Waiting for Player 2...";
+        statusColor = "blue";
+        break;
+      case 2: // Revealed
+        statusDetails = "Player 2 joined. Player 1 must reveal move.";
+        statusColor = "orange";
+        if (game.revealDeadline > 0) {
+          const deadline = Number(game.revealDeadline);
+          const now = Math.floor(Date.now() / 1000);
+          const timeRemaining = deadline - now;
+          if (timeRemaining > 0) {
+            const minutes = Math.floor(timeRemaining / 60);
+            const seconds = timeRemaining % 60;
+            const timeStr = `${minutes}:${seconds.toString().padStart(2, "0")}`;
+            const isUrgent = timeRemaining < 60;
+            statusDetails += ` <span class="font-semibold ${
+              isUrgent ? "text-red-600" : "text-yellow-600"
+            }">(⏰ ${timeStr} remaining)</span>`;
+          } else {
+            statusDetails += ` <span class="font-semibold text-red-600">(⏰ Deadline passed!)</span>`;
+          }
+        }
+        break;
+      case 3: // Completed
+        const winnerNum = Number(game.winner);
+        if (winnerNum === 0) {
+          statusDetails = "Game completed: It's a tie! 🤝";
+          statusColor = "gray";
+        } else if (winnerNum === gameState.playerNumber) {
+          statusDetails = "Game completed: You won! 🎉";
+          statusColor = "green";
+        } else {
+          statusDetails = "Game completed: You lost. 😔";
+          statusColor = "red";
+        }
+        break;
     }
 
-    document.getElementById("gameStatus").innerHTML = `
-      <div class="bg-white rounded-xl p-4 border-2 border-gray-200 slide-up">
+    // Map status colors to Tailwind classes
+    const borderColorClass =
+      {
+        yellow: "border-yellow-200",
+        blue: "border-blue-200",
+        orange: "border-orange-200",
+        green: "border-green-200",
+        red: "border-red-200",
+        gray: "border-gray-200",
+      }[statusColor] || "border-gray-200";
+
+    statusDiv.innerHTML = `
+      <div class="bg-white rounded-xl p-4 border-2 ${borderColorClass} slide-up">
         <div class="flex flex-wrap items-center gap-3 mb-2">
           <span class="status-badge ${statusClass}">${statusText}</span>
           <span class="text-gray-600 font-semibold">Game ID: <span class="font-mono text-purple-600">${gameState.gameId}</span></span>
         </div>
-        <p class="text-gray-700 font-medium">
-          👤 You are <span class="text-purple-600 font-bold">Player ${gameState.playerNumber}</span>
+        <p class="text-gray-700 font-medium text-sm">
+          ${statusDetails}
         </p>
-        ${deadlineHtml}
+        <p class="text-gray-600 text-xs mt-2">
+          👤 You are <span class="font-semibold text-purple-600">Player ${gameState.playerNumber}</span>
+        </p>
       </div>
     `;
   } catch (error) {
-    log(`Error updating game status: ${error.message}`);
+    statusDiv.innerHTML = `
+      <div class="bg-red-50 border-2 border-red-200 rounded-xl p-4">
+        <p class="text-sm text-red-600 text-center">
+          Error loading game status: ${error.message}
+        </p>
+      </div>
+    `;
   }
+}
+
+// Update game status display (now only updates resolution status)
+async function updateGameStatus() {
+  // Only update resolution status - the single source of truth
+  await updateGameResolutionStatus();
 }
 
 // Update move status
@@ -785,12 +854,17 @@ async function checkGameResult() {
     updateRevealStatus();
 
     // If Player 2 just joined and Player 1 is watching, start deadline polling
+    // Only start if deadline is actually set and valid
     if (
       statusNum === 2 &&
       game.player2 !== ethers.ZeroAddress &&
-      gameState.playerNumber === 1
+      gameState.playerNumber === 1 &&
+      game.revealDeadline > 0
     ) {
-      if (!deadlinePollInterval) {
+      const deadlineNum = Number(game.revealDeadline);
+      const now = Math.floor(Date.now() / 1000);
+      // Only start polling if deadline is in the future
+      if (deadlineNum > now && !deadlinePollInterval) {
         startDeadlinePolling();
       }
     }
@@ -1159,20 +1233,26 @@ async function checkDeadline() {
       return;
     }
 
-    // Only check deadline if Player 2 has joined
-    if (game.player2 === ethers.ZeroAddress || game.revealDeadline === 0) {
+    // Only check deadline if Player 2 has joined and deadline is set
+    if (game.player2 === ethers.ZeroAddress) {
       return;
     }
 
-    const deadline = Number(game.revealDeadline);
+    const deadlineNum = Number(game.revealDeadline);
+    // If deadline is 0 or invalid, don't check
+    if (deadlineNum === 0 || isNaN(deadlineNum) || deadlineNum <= 0) {
+      return;
+    }
+
     const now = Math.floor(Date.now() / 1000);
-    const timeRemaining = deadline - now;
+    const timeRemaining = deadlineNum - now;
 
     // Update deadline display
     updateDeadlineDisplay(timeRemaining);
 
     // If deadline passed and game not resolved, forfeit
-    if (timeRemaining <= 0 && game.status !== 3) {
+    // Only forfeit if timeRemaining is actually negative (deadline has passed)
+    if (timeRemaining < 0 && game.status !== 3) {
       log("⏰ Deadline passed! Forfeiting game...");
       await forfeitGame();
     }
@@ -1220,23 +1300,33 @@ function updateDeadlineDisplay(timeRemaining) {
   const deadlineDiv = document.getElementById("deadlineDisplay");
   if (!deadlineDiv) return;
 
-  if (timeRemaining <= 0) {
+  // Don't show deadline if time remaining is invalid (negative or very large)
+  // Only show "Deadline Passed" if it's actually negative (not just 0 or invalid)
+  if (timeRemaining < 0) {
     deadlineDiv.innerHTML = `
       <div class="bg-red-100 border-2 border-red-300 rounded-xl p-4 text-center">
         <p class="text-red-800 font-bold text-lg">⏰ Deadline Passed!</p>
         <p class="text-red-600 text-sm">Player 1 forfeits - Player 2 wins</p>
       </div>
     `;
-  } else {
-    const minutes = Math.floor(timeRemaining / 60);
-    const seconds = timeRemaining % 60;
-    const timeStr = `${minutes}:${seconds.toString().padStart(2, "0")}`;
-    const isUrgent = timeRemaining < 60;
+    return;
+  }
 
-    deadlineDiv.innerHTML = `
+  // Don't show if time is invalid (too large) or exactly 0
+  if (timeRemaining === 0 || timeRemaining > 86400 * 365) {
+    deadlineDiv.innerHTML = "";
+    return;
+  }
+
+  const minutes = Math.floor(timeRemaining / 60);
+  const seconds = timeRemaining % 60;
+  const timeStr = `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  const isUrgent = timeRemaining < 60;
+
+  deadlineDiv.innerHTML = `
       <div class="bg-${isUrgent ? "red" : "yellow"}-100 border-2 border-${
-      isUrgent ? "red" : "yellow"
-    }-300 rounded-xl p-4 text-center">
+    isUrgent ? "red" : "yellow"
+  }-300 rounded-xl p-4 text-center">
         <p class="text-${
           isUrgent ? "red" : "yellow"
         }-800 font-bold text-lg">⏰ Time Remaining: ${timeStr}</p>
@@ -1245,7 +1335,6 @@ function updateDeadlineDisplay(timeRemaining) {
         }-600 text-sm">Player 1 must reveal before deadline</p>
       </div>
     `;
-  }
 }
 
 // Helper function to get move name
@@ -1416,6 +1505,9 @@ async function init() {
 
     // Initialize step checkmarks
     updateStepCheckmarks();
+
+    // Initialize game resolution status display
+    await updateGameResolutionStatus();
   } catch (error) {
     log(`Failed to initialize: ${error.message}`);
   }
