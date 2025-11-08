@@ -1,0 +1,8 @@
+{
+  "token0": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+  "token1": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+  "poolManager": "0x0d9baf34817fccd3b3068768e5d20542b66424a5",
+  "positionManager": "0x90aae8e3c8df1d226431d0c2c7feaaa775faf86c",
+  "router": "0x2279b7a0a67db372996a5fab50d91eaa73d2ebe6",
+  "hook": "0x8215e0f20fe84407514f677f649b47d226e80ac4"
+}
