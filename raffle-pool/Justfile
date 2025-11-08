@@ -21,6 +21,14 @@ deployments-file := "deployments.json"
 chain-id := "31337"
 
 # ============================================================================
+# Default Command
+# ============================================================================
+
+# Show available commands
+default:
+    @just --list --unsorted
+
+# ============================================================================
 # Helper Functions
 # ============================================================================
 
@@ -29,17 +37,45 @@ chain-id := "31337"
 _get-address KEY:
     #!/usr/bin/env bash
     if [ -f {{deployments-file}} ]; then
-        jq -r ".[\"{{KEY}}\"] // empty" {{deployments-file}} 2>/dev/null || echo ""
+        jq -r ".contracts[\"{{KEY}}\"].address // empty" {{deployments-file}} 2>/dev/null || echo ""
     fi
 
-# Set address in deployments.json
+# Set address in deployments.json (legacy - use _set-contract-metadata instead)
 # Usage: just _set-address <key> <value>
 _set-address KEY VALUE:
     #!/usr/bin/env bash
     if [ ! -f {{deployments-file}} ]; then
-        echo "{}" > {{deployments-file}}
+        echo '{"chainId": "{{chain-id}}", "rpcUrl": "{{default-rpc-url}}", "contracts": {}}' > {{deployments-file}}
     fi
-    jq ".[\"{{KEY}}\"] = \"{{VALUE}}\"" {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+    jq '.chainId = "{{chain-id}}" | .rpcUrl = (.rpcUrl // "{{default-rpc-url}}") | .contracts = (.contracts // {}) | .contracts["{{KEY}}"].address = "{{VALUE}}" | .contracts["{{KEY}}"].abi = (.contracts["{{KEY}}"].abi // []) | .contracts["{{KEY}}"].blockNumber = (.contracts["{{KEY}}"].blockNumber // 0)' {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+
+# Set contract metadata (ABI, blockNumber, etc.) in deployments.json
+# Usage: just _set-contract-metadata <key> <address> <abi-path> <block-number>
+_set-contract-metadata KEY ADDRESS ABI_PATH BLOCK_NUMBER:
+    #!/usr/bin/env bash
+    if [ ! -f {{deployments-file}} ]; then
+        echo '{"chainId": "{{chain-id}}", "rpcUrl": "{{default-rpc-url}}", "contracts": {}}' > {{deployments-file}}
+    fi
+    
+    # Ensure chainId, rpcUrl and contracts structure exists
+    jq '.chainId = "{{chain-id}}" | .rpcUrl = (.rpcUrl // "{{default-rpc-url}}") | .contracts = (.contracts // {})' {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
+    
+    # Read ABI if file exists and is not empty
+    ABI="[]"
+    if [ -n "{{ABI_PATH}}" ] && [ "{{ABI_PATH}}" != "" ] && [ -f "{{ABI_PATH}}" ]; then
+        ABI=$(jq -c '.abi' "{{ABI_PATH}}" 2>/dev/null || echo "[]")
+    fi
+    
+    # Update deployments.json with contract info
+    jq --arg key "{{KEY}}" \
+       --arg addr "{{ADDRESS}}" \
+       --argjson abi "$ABI" \
+       --arg block "{{BLOCK_NUMBER}}" \
+       '.contracts[$key] = {
+         address: $addr,
+         abi: $abi,
+         blockNumber: ($block | tonumber)
+       }' {{deployments-file}} > {{deployments-file}}.tmp && mv {{deployments-file}}.tmp {{deployments-file}}
 
 # Extract address from broadcast JSON file
 # Usage: just _extract-from-broadcast <script-name> <contract-name>
@@ -55,21 +91,17 @@ _extract-from-broadcast SCRIPT_NAME CONTRACT_NAME:
 _load-addresses:
     #!/usr/bin/env bash
     if [ -f {{deployments-file}} ]; then
-        echo "export HOOK_ADDRESS=$(jq -r '.hook // empty' {{deployments-file}} 2>/dev/null || echo '')"
-        echo "export POOL_MANAGER_ADDRESS=$(jq -r '.poolManager // empty' {{deployments-file}} 2>/dev/null || echo '')"
-        echo "export POSITION_MANAGER_ADDRESS=$(jq -r '.positionManager // empty' {{deployments-file}} 2>/dev/null || echo '')"
-        echo "export ROUTER_ADDRESS=$(jq -r '.router // empty' {{deployments-file}} 2>/dev/null || echo '')"
-        echo "export TOKEN0_ADDRESS=$(jq -r '.token0 // empty' {{deployments-file}} 2>/dev/null || echo '')"
-        echo "export TOKEN1_ADDRESS=$(jq -r '.token1 // empty' {{deployments-file}} 2>/dev/null || echo '')"
+        echo "export HOOK_ADDRESS=$(jq -r '.contracts.hook.address // empty' {{deployments-file}} 2>/dev/null || echo '')"
+        echo "export POOL_MANAGER_ADDRESS=$(jq -r '.contracts.poolManager.address // empty' {{deployments-file}} 2>/dev/null || echo '')"
+        echo "export POSITION_MANAGER_ADDRESS=$(jq -r '.contracts.positionManager.address // empty' {{deployments-file}} 2>/dev/null || echo '')"
+        echo "export ROUTER_ADDRESS=$(jq -r '.contracts.router.address // empty' {{deployments-file}} 2>/dev/null || echo '')"
+        echo "export TOKEN0_ADDRESS=$(jq -r '.contracts.token0.address // empty' {{deployments-file}} 2>/dev/null || echo '')"
+        echo "export TOKEN1_ADDRESS=$(jq -r '.contracts.token1.address // empty' {{deployments-file}} 2>/dev/null || echo '')"
     fi
 
 # ============================================================================
 # Setup & Configuration
 # ============================================================================
-
-# Show available commands
-default:
-    @just --list
 
 # Show all deployed addresses
 show-addresses:
@@ -184,12 +216,24 @@ deploy-tokens RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba
     fi
     
     if [ -n "$TOKEN0" ] && [ -n "$TOKEN1" ]; then
-        just _set-address token0 "$TOKEN0"
-        just _set-address token1 "$TOKEN1"
+        # Extract block numbers from broadcast file by matching transaction hash
+        HASH0=$(jq -r '.transactions[] | select(.contractName == "MockERC20" and .contractAddress == "'"$TOKEN0"'") | .hash' "$BROADCAST_FILE" 2>/dev/null | head -1)
+        HASH1=$(jq -r '.transactions[] | select(.contractName == "MockERC20" and .contractAddress == "'"$TOKEN1"'") | .hash' "$BROADCAST_FILE" 2>/dev/null | sed -n '2p')
+        
+        BLOCK0=$(jq -r --arg hash "$HASH0" '.receipts[] | select(.transactionHash == $hash) | .blockNumber' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "0x0")
+        BLOCK1=$(jq -r --arg hash "$HASH1" '.receipts[] | select(.transactionHash == $hash) | .blockNumber' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "0x0")
+        
+        # Convert hex to decimal
+        BLOCK0=$(printf "%d" "$BLOCK0" 2>/dev/null || echo "0")
+        BLOCK1=$(printf "%d" "$BLOCK1" 2>/dev/null || echo "0")
+        
+        # Save with metadata (ABI and block number)
+        just _set-contract-metadata token0 "$TOKEN0" "out/MockERC20.sol/MockERC20.json" "$BLOCK0"
+        just _set-contract-metadata token1 "$TOKEN1" "out/MockERC20.sol/MockERC20.json" "$BLOCK1"
         echo ""
-        echo "✓ Token0 deployed at: $TOKEN0"
-        echo "✓ Token1 deployed at: $TOKEN1"
-        echo "✓ Addresses saved to {{deployments-file}}"
+        echo "✓ Token0 deployed at: $TOKEN0 (block: $BLOCK0)"
+        echo "✓ Token1 deployed at: $TOKEN1 (block: $BLOCK1)"
+        echo "✓ Addresses and ABIs saved to {{deployments-file}}"
     else
         echo "⚠ Could not extract token addresses from broadcast files."
         echo "Please check broadcast/00_DeployTokens.s.sol/{{chain-id}}/run-latest.json"
@@ -284,10 +328,17 @@ deploy-hook RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba4a
     HOOK_ADDR=$(just _extract-from-broadcast 00_DeployHook.s.sol RPSHook)
     
     if [ -n "$HOOK_ADDR" ]; then
-        just _set-address hook "$HOOK_ADDR"
+        # Extract block number from broadcast file
+        BROADCAST_FILE="broadcast/00_DeployHook.s.sol/{{chain-id}}/run-latest.json"
+        HASH=$(jq -r '.transactions[] | select(.contractName == "RPSHook" and .contractAddress == "'"$HOOK_ADDR"'") | .hash' "$BROADCAST_FILE" 2>/dev/null | head -1)
+        BLOCK=$(jq -r --arg hash "$HASH" '.receipts[] | select(.transactionHash == $hash) | .blockNumber' "$BROADCAST_FILE" 2>/dev/null | head -1 || echo "0x0")
+        BLOCK=$(printf "%d" "$BLOCK" 2>/dev/null || echo "0")
+        
+        # Save with metadata (ABI and block number)
+        just _set-contract-metadata hook "$HOOK_ADDR" "out/RPSHook.sol/RPSHook.json" "$BLOCK"
         echo ""
-        echo "✓ Hook deployed at: $HOOK_ADDR"
-        echo "✓ Address saved to {{deployments-file}}"
+        echo "✓ Hook deployed at: $HOOK_ADDR (block: $BLOCK)"
+        echo "✓ Address and ABI saved to {{deployments-file}}"
     else
         echo "⚠ Could not extract hook address from broadcast files."
         echo "Please check broadcast/00_DeployHook.s.sol/{{chain-id}}/run-latest.json"
@@ -421,14 +472,21 @@ deploy-v4 RPC_URL="http://localhost:8545" PRIVATE_KEY="0xac0974bec39a17e36ba4a6b
         ROUTER="0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6"
     fi
     
-    just _set-address poolManager "$POOL_MGR"
-    just _set-address positionManager "$POS_MGR"
-    just _set-address router "$ROUTER"
+    # Extract block numbers (V4 contracts are deployed in same transaction, so use first receipt)
+    BLOCK=$(jq -r '.receipts[0].blockNumber' "$BROADCAST_FILE" 2>/dev/null || echo "0")
+    BLOCK=$(printf "%d" "$BLOCK" 2>/dev/null || echo "0")
+    
+    # Note: V4 contracts are from external libraries, so we may not have ABIs locally
+    # Save addresses with block numbers (ABI will be empty array)
+    just _set-contract-metadata poolManager "$POOL_MGR" "" "$BLOCK"
+    just _set-contract-metadata positionManager "$POS_MGR" "" "$BLOCK"
+    just _set-contract-metadata router "$ROUTER" "" "$BLOCK"
     echo ""
-    echo "✓ PoolManager: $POOL_MGR"
-    echo "✓ PositionManager: $POS_MGR"
-    echo "✓ Router: $ROUTER"
+    echo "✓ PoolManager: $POOL_MGR (block: $BLOCK)"
+    echo "✓ PositionManager: $POS_MGR (block: $BLOCK)"
+    echo "✓ Router: $ROUTER (block: $BLOCK)"
     echo "✓ Addresses saved to {{deployments-file}}"
+    echo "  Note: V4 contract ABIs are in external libraries (uniswap-hooks, hookmate)"
 
 # ============================================================================
 # Pool Management Commands
