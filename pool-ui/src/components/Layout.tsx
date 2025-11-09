@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAccount, useConnect, useDisconnect } from 'wagmi';
 import { formatAddress } from '../lib/utils';
+import config from '../../deployments.json';
 
 interface LayoutProps {
   children: ReactNode;
@@ -9,9 +10,11 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation();
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, chainId } = useAccount();
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
+  const expectedChainId = parseInt(config.chainId);
+  const isCorrectNetwork = chainId === expectedChainId;
 
   const navItems = [
     { path: '/', label: 'Home' },
@@ -46,6 +49,11 @@ export default function Layout({ children }: LayoutProps) {
               </nav>
             </div>
             <div className="flex items-center space-x-4">
+              {!isCorrectNetwork && isConnected && (
+                <div className="px-3 py-1 bg-yellow-500/20 border border-yellow-500 rounded text-xs text-yellow-400">
+                  Wrong Network (Chain ID: {chainId})
+                </div>
+              )}
               {isConnected && address ? (
                 <>
                   <span className="text-sm text-slate-300">
@@ -70,6 +78,23 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         </div>
       </header>
+      {!isCorrectNetwork && isConnected && (
+        <div className="bg-yellow-500/20 border-b border-yellow-500">
+          <div className="container mx-auto px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div className="text-yellow-400 text-sm">
+                <strong>⚠️ Wrong Network:</strong> Please switch to Local Anvil (Chain ID: {expectedChainId}) at {config.rpcUrl}
+              </div>
+              <div className="text-xs text-yellow-300 space-y-1">
+                <div><strong>Network Name:</strong> Local Anvil</div>
+                <div><strong>RPC URL:</strong> {config.rpcUrl}</div>
+                <div><strong>Chain ID:</strong> {expectedChainId}</div>
+                <div><strong>Currency Symbol:</strong> ETH</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <main className="container mx-auto px-4 py-8">{children}</main>
     </div>
   );

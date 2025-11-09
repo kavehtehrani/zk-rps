@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
+import { useQueryClient } from '@tanstack/react-query';
 import { config } from '../../lib/contracts';
 import { useTokenBalance, useTokenSymbol, useApproveToken, useTokenAllowance } from '../../hooks/useToken';
 import { useSwapWithCommitment } from '../../hooks/useSwap';
@@ -11,6 +12,7 @@ import { Address } from 'viem';
 
 export default function SwapInterface() {
   const { address } = useAccount();
+  const queryClient = useQueryClient();
   const [amount, setAmount] = useState('');
   const [selectedMove, setSelectedMove] = useState<number | null>(null);
   const [zeroForOne, setZeroForOne] = useState(true);
@@ -22,18 +24,44 @@ export default function SwapInterface() {
   const inputToken = zeroForOne ? token0Address : token1Address;
   const outputToken = zeroForOne ? token1Address : token0Address;
 
+  // Safety check: ensure we're not accidentally using router address as token
+  if (!inputToken || !outputToken || inputToken === routerAddress || outputToken === routerAddress) {
+    console.error('Invalid token addresses detected!', { inputToken, outputToken, routerAddress });
+  }
+
   const { data: inputBalance } = useTokenBalance(inputToken, address);
   const { data: outputBalance } = useTokenBalance(outputToken, address);
   const { data: inputSymbol } = useTokenSymbol(inputToken);
   const { data: outputSymbol } = useTokenSymbol(outputToken);
-  const { data: allowance } = useTokenAllowance(inputToken, address, routerAddress);
-  const { approve, isPending: isApproving } = useApproveToken();
-  const { swap, isPending: isSwapping, isSuccess } = useSwapWithCommitment();
+  const { data: allowance, refetch: refetchAllowance } = useTokenAllowance(inputToken, address, routerAddress);
+  const { approve, isPending: isApproving, isSuccess: isApprovalSuccess } = useApproveToken();
+  const { swap, isPending: isSwapping, isLoading: isConfirming, isSuccess, hash } = useSwapWithCommitment();
+  
+  // Track if a swap transaction is in progress (pending or confirming)
+  const isSwapInProgress = isSwapping || isConfirming || !!hash;
+
+  // Refetch allowance when approval succeeds
+  useEffect(() => {
+    if (isApprovalSuccess) {
+      toast.success('Approval successful!');
+      // Invalidate and refetch allowance after a short delay to allow blockchain to update
+      setTimeout(() => {
+        queryClient.invalidateQueries();
+        refetchAllowance?.();
+      }, 1000);
+    }
+  }, [isApprovalSuccess, queryClient, refetchAllowance]);
 
   const needsApproval = amount && allowance !== undefined && parseAmount(amount) > allowance;
 
   const handleSwap = async () => {
-    if (!address || !selectedMove || !amount) {
+    // Prevent double-submission
+    if (isSwapInProgress) {
+      toast.error('Transaction already in progress. Please wait...');
+      return;
+    }
+
+    if (!address || selectedMove === null || !amount) {
       toast.error('Please fill in all fields');
       return;
     }
@@ -116,7 +144,7 @@ export default function SwapInterface() {
         <MoveSelector
           selectedMove={selectedMove}
           onSelectMove={setSelectedMove}
-          disabled={isSwapping || isApproving}
+          disabled={isSwapInProgress || isApproving}
         />
 
         {/* Action Button */}
@@ -131,10 +159,10 @@ export default function SwapInterface() {
         ) : (
           <button
             onClick={handleSwap}
-            disabled={isSwapping || !amount || selectedMove === null || !address}
+            disabled={isSwapInProgress || !amount || selectedMove === null || !address}
             className="w-full py-3 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md font-medium transition-colors"
           >
-            {isSwapping ? 'Swapping...' : 'Swap & Start Game'}
+            {isSwapInProgress ? (isConfirming ? 'Confirming...' : 'Swapping...') : 'Swap & Start Game'}
           </button>
         )}
 

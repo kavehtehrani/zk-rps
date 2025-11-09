@@ -2,34 +2,128 @@ import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { Routes, Route, useParams, Link } from 'react-router-dom';
 import { usePendingSwap } from '../hooks/useRPSHook';
-import { getAllCommitments, getCommitment } from '../lib/storage';
+import { getAllCommitments, getCommitment, removeCommitment } from '../lib/storage';
 import GameCard from '../components/Game/GameCard';
 import GameDetail from '../components/Game/GameDetail';
 import { formatAddress } from '../lib/utils';
 import { Address } from 'viem';
 
+// Component to validate a single commitment exists on-chain
+function ValidatedGameCard({ 
+  commitmentHash, 
+  address,
+  onValidation 
+}: { 
+  commitmentHash: string; 
+  address: Address | undefined;
+  onValidation?: (hash: string, isValid: boolean) => void;
+}) {
+  const { data: gameData, isLoading, error } = usePendingSwap(commitmentHash as `0x${string}`);
+
+  // Check if game actually exists on-chain
+  // A game exists if player1 is not zero address and timestamp is not zero
+  const gameExists = gameData && 
+    gameData.player1 !== '0x0000000000000000000000000000000000000000' && 
+    gameData.timestamp > 0n;
+
+  useEffect(() => {
+    if (!isLoading) {
+      const isValid = gameExists && !error;
+      onValidation?.(commitmentHash, isValid);
+    }
+  }, [isLoading, gameExists, error, commitmentHash, onValidation]);
+
+  // If there's an error or the game doesn't exist on-chain, don't render
+  if (!isLoading && (!gameExists || error)) {
+    return null;
+  }
+
+  if (isLoading) {
+    return (
+      <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
+        <div className="text-slate-400">Loading game...</div>
+      </div>
+    );
+  }
+
+  return (
+    <GameCard
+      commitmentHash={commitmentHash}
+      game={gameData || {
+        player1: address || '0x0',
+        timestamp: BigInt(0),
+        poolId: '0x0',
+        currency: '0x0',
+        player1Contribution: BigInt(0),
+        player2Moved: false,
+        player2: '0x0',
+        player2Move: 0,
+        player2Contribution: BigInt(0),
+        player2MoveTimestamp: BigInt(0),
+        revealed: false,
+        player1Move: 0,
+        salt: '0x0',
+        resolved: false,
+      }}
+      isPlayer1={true}
+      isPlayer2={false}
+    />
+  );
+}
+
 function GamesList() {
   const { address } = useAccount();
   const [commitments, setCommitments] = useState<string[]>([]);
-  const [games, setGames] = useState<Map<string, any>>(new Map());
+  const [validCommitments, setValidCommitments] = useState<Set<string>>(new Set());
+  const [validationComplete, setValidationComplete] = useState(false);
+
+  const [validatedHashes, setValidatedHashes] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     // Load all commitments from localStorage
     const storedCommitments = getAllCommitments();
     setCommitments(storedCommitments.map((c) => c.commitmentHash));
+    setValidCommitments(new Set());
+    setValidatedHashes(new Set());
+    setValidationComplete(false);
   }, []);
 
-  // Fetch game data for each commitment
-  const { data: gameData } = usePendingSwap(
-    commitments[0] as `0x${string}` | undefined
-  );
+  const handleValidation = (hash: string, isValid: boolean) => {
+    setValidatedHashes((prev) => {
+      const next = new Set(prev);
+      next.add(hash);
+      // Mark validation as complete when we've checked all commitments
+      if (next.size >= commitments.length) {
+        setValidationComplete(true);
+      }
+      return next;
+    });
+    
+    setValidCommitments((prev) => {
+      const next = new Set(prev);
+      if (isValid) {
+        next.add(hash);
+      } else {
+        next.delete(hash);
+      }
+      return next;
+    });
+  };
 
-  useEffect(() => {
-    if (gameData && commitments.length > 0) {
-      // In a real app, you'd fetch all games
-      // For now, we'll just show games from localStorage
+  // Filter out invalid commitments (those that don't exist on-chain)
+  // We'll validate them as we render, but also provide a way to clean up
+  const handleClearInvalid = () => {
+    // Clear all localStorage commitments (development helper)
+    if (confirm('Clear all stored game commitments? This will remove games from localStorage.')) {
+      commitments.forEach((hash) => {
+        removeCommitment(hash);
+      });
+      setCommitments([]);
+      setValidCommitments(new Set());
+      setValidatedHashes(new Set());
+      setValidationComplete(false);
     }
-  }, [gameData, commitments]);
+  };
 
   if (commitments.length === 0) {
     return (
@@ -49,40 +143,65 @@ function GamesList() {
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold text-white">My Games</h1>
-        <Link
-          to="/swap"
-          className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-md transition-colors"
-        >
-          New Game
-        </Link>
+        <div className="flex gap-2">
+          <button
+            onClick={handleClearInvalid}
+            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-md transition-colors text-sm"
+            title="Clear localStorage (useful after Anvil restart)"
+          >
+            Clear Stored Games
+          </button>
+          <Link
+            to="/swap"
+            className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-md transition-colors"
+          >
+            New Game
+          </Link>
+        </div>
       </div>
+
+      {/* Debug info - show validation status */}
+      {commitments.length > 0 && (
+        <div className="mb-4 p-3 bg-slate-900 border border-slate-700 rounded-lg text-sm">
+          <div className="text-slate-400 mb-2">
+            Validation Status: {validatedHashes.size} / {commitments.length} checked
+            {validationComplete && ` • ${validCommitments.size} valid on-chain`}
+          </div>
+          {commitments.length > 0 && (
+            <div className="text-xs text-slate-500 space-y-1">
+              {commitments.map((hash) => (
+                <div key={hash}>
+                  {hash.slice(0, 10)}...: {validatedHashes.has(hash) 
+                    ? (validCommitments.has(hash) ? '✓ Valid' : '✗ Not on-chain')
+                    : '⏳ Checking...'}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="space-y-3">
         {commitments.map((hash) => (
-          <GameCard
-            key={hash}
-            commitmentHash={hash}
-            game={games.get(hash) || {
-              player1: address || '0x0',
-              timestamp: BigInt(0),
-              poolId: '0x0',
-              currency: '0x0',
-              player1Contribution: BigInt(0),
-              player2Moved: false,
-              player2: '0x0',
-              player2Move: 0,
-              player2Contribution: BigInt(0),
-              player2MoveTimestamp: BigInt(0),
-              revealed: false,
-              player1Move: 0,
-              salt: '0x0',
-              resolved: false,
-            }}
-            isPlayer1={true}
-            isPlayer2={false}
+          <ValidatedGameCard 
+            key={hash} 
+            commitmentHash={hash} 
+            address={address}
+            onValidation={handleValidation}
           />
         ))}
       </div>
+      
+      {validationComplete && commitments.length > 0 && validCommitments.size === 0 && (
+        <div className="text-center py-8 bg-yellow-500/20 border border-yellow-500 rounded-lg">
+          <p className="text-yellow-400 mb-2">
+            No games found on-chain. This might happen after restarting Anvil.
+          </p>
+          <p className="text-sm text-slate-400 mb-4">
+            Click "Clear Stored Games" to remove games from localStorage.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

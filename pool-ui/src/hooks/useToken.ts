@@ -9,7 +9,9 @@ export function useTokenBalance(tokenAddress: Address, userAddress: Address | un
     functionName: 'balanceOf',
     args: userAddress ? [userAddress] : undefined,
     query: {
-      enabled: !!userAddress,
+      enabled: !!userAddress && !!tokenAddress,
+      retry: false,
+      retryOnMount: false,
     },
   });
 }
@@ -21,7 +23,9 @@ export function useTokenAllowance(tokenAddress: Address, owner: Address | undefi
     functionName: 'allowance',
     args: owner ? [owner, spender] : undefined,
     query: {
-      enabled: !!owner,
+      enabled: !!owner && !!tokenAddress && !!spender,
+      retry: false,
+      retryOnMount: false,
     },
   });
 }
@@ -54,6 +58,11 @@ export function useTokenDecimals(tokenAddress: Address) {
     address: tokenAddress,
     abi: erc20Abi,
     functionName: 'decimals',
+    query: {
+      enabled: !!tokenAddress,
+      retry: false, // Don't retry on failure
+      retryOnMount: false,
+    },
   });
 }
 
@@ -62,5 +71,39 @@ export function useTokenSymbol(tokenAddress: Address) {
     address: tokenAddress,
     abi: erc20Abi,
     functionName: 'symbol',
+    query: {
+      enabled: !!tokenAddress,
+      retry: false,
+      retryOnMount: false,
+    },
   });
+}
+
+export function useMintToken() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const mint = (tokenAddress: Address, to: Address, amount: bigint) => {
+    // Get the token ABI from config (token0 or token1)
+    const tokenAbi = 
+      tokenAddress.toLowerCase() === config.contracts.token0.address.toLowerCase()
+        ? config.contracts.token0.abi
+        : config.contracts.token1.abi;
+
+    writeContract({
+      address: tokenAddress,
+      abi: tokenAbi,
+      functionName: 'mint',
+      args: [to, amount],
+    });
+  };
+
+  return {
+    mint,
+    hash,
+    isPending,
+    isConfirming,
+    isSuccess,
+    error,
+  };
 }

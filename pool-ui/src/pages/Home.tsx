@@ -1,15 +1,23 @@
 import { Link } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 import { useRafflePoolBalance } from '../hooks/useRPSHook';
+import { useTokenBalance, useTokenDecimals } from '../hooks/useToken';
 import { config, getPoolId } from '../lib/contracts';
-import { formatAmount } from '../lib/utils';
+import { formatAmount, formatAddress } from '../lib/utils';
 import { Address } from 'viem';
 
 export default function Home() {
   const { address, isConnected } = useAccount();
   const poolId = getPoolId();
   const token0Address = config.contracts.token0.address as Address;
+  const token1Address = config.contracts.token1.address as Address;
   const { data: poolBalance } = useRafflePoolBalance(poolId, token0Address);
+  
+  // Fetch wallet token balances
+  const { data: token0Balance } = useTokenBalance(token0Address, address);
+  const { data: token1Balance } = useTokenBalance(token1Address, address);
+  const { data: token0Decimals } = useTokenDecimals(token0Address);
+  const { data: token1Decimals } = useTokenDecimals(token1Address);
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
@@ -61,6 +69,37 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Wallet Balances */}
+      {isConnected && address && (
+        <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
+          <h2 className="text-2xl font-bold text-white mb-4">Your Wallet Balances</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="bg-slate-900 border border-slate-600 rounded-lg p-4">
+              <div className="text-sm text-slate-400 mb-2">Token0 Balance</div>
+              <div className="text-2xl font-bold text-white">
+                {token0Balance && token0Decimals
+                  ? formatAmount(token0Balance, Number(token0Decimals))
+                  : '0.0'}
+              </div>
+              <div className="text-xs text-slate-500 mt-1 font-mono">
+                {formatAddress(token0Address)}
+              </div>
+            </div>
+            <div className="bg-slate-900 border border-slate-600 rounded-lg p-4">
+              <div className="text-sm text-slate-400 mb-2">Token1 Balance</div>
+              <div className="text-2xl font-bold text-white">
+                {token1Balance && token1Decimals
+                  ? formatAmount(token1Balance, Number(token1Decimals))
+                  : '0.0'}
+              </div>
+              <div className="text-xs text-slate-500 mt-1 font-mono">
+                {formatAddress(token1Address)}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Features */}
       <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
